@@ -26,6 +26,9 @@ cd client && npm install && npm run dev
 
 Open http://localhost:5173.
 
+## Deploy (Vercel)
+One Vercel project serves both parts: the React build as static files and the Express API as a serverless function (`api/[...slug].js`). Import this repo at vercel.com/new and keep the defaults; `vercel.json` sets the build. Optional: add `AMADEUS_CLIENT_ID` and `AMADEUS_CLIENT_SECRET` as environment variables for live fares.
+
 ## Logo font
 The logo uses Vergilia by Attract Studio. Add the font file to `client/public/fonts/` (see the README there). Without it the logo falls back to a serif font.
 
