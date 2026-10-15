@@ -54,7 +54,7 @@ export async function buildTrip({ destId, originId, depart, nights, travelers, b
   const weather = await getForecast(dest.lat, dest.lng);
 
   return {
-    destination: { id: dest.id, city: dest.city, country: dest.country, iata: dest.iata, lat: dest.lat, lng: dest.lng, blurb: dest.blurb, tags: dest.tags },
+    destination: { id: dest.id, city: dest.city, state: dest.state, country: dest.country, iata: dest.iata, lat: dest.lat, lng: dest.lng, blurb: dest.blurb, tags: dest.tags },
     domestic,
     distanceKm: Math.round(km),
     query: { origin: origin.iata, originId: origin.id, originCity: origin.city, depart: chosenDepart, ret, nights, travelers, budget, level },

@@ -193,7 +193,7 @@ export default function App() {
             <div className="dest-row">
               {plan.trips.map((t, i) => (
                 <button key={t.destination.id} className={`dest-card ${i === selected ? "active" : ""}`} onClick={() => { setSelected(i); setTab("flights"); }}>
-                  <strong>{t.destination.city}, {t.destination.country}</strong>
+                  <strong>{t.destination.city}, {t.destination.state || t.destination.country}</strong>
                   <span className="muted">{t.domestic ? "Domestic flight" : "International flight"} · {t.destination.blurb}</span>
                   <span className="price">{money(allIn(t))} <small>all-in trip cost</small></span>
                   {plan.parsed.budget && <span className={allIn(t) <= plan.parsed.budget ? "ok" : "over"}>{allIn(t) <= plan.parsed.budget ? "Within budget" : `${money(allIn(t) - plan.parsed.budget)} over budget`}</span>}

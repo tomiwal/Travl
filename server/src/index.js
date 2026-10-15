@@ -46,7 +46,7 @@ app.post("/api/plan", async (req, res) => {
     if (body.travelers) parsed.travelers = clampInt(body.travelers, 1, 9, 1);
     if (body.budget) parsed.budget = clampInt(body.budget, 50, 1000000, null) || parsed.budget;
     if (LEVELS.includes(body.level)) parsed.level = body.level;
-    const depart = ISO_DATE.test(body.depart) ? body.depart : undefined;
+    const depart = ISO_DATE.test(body.depart) ? body.depart : parsed.depart;
 
     parsed.destinations = parsed.destinations.filter((id) => id !== parsed.originId);
     if (!parsed.destinations.length) return res.status(400).json({ error: "Pick a destination different from your departure city." });

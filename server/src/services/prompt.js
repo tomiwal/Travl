@@ -68,6 +68,9 @@ export function parsePrompt(raw) {
     const before = text.slice(Math.max(0, m.start - 40), m.start);
     const asOrigin = !originId && isOriginCue(before);
     if (m.state) {
+      // "Houston, Texas": the state just qualifies the city before it.
+      const prev = mentions[i - 1];
+      if (prev && !prev.state && /^[\s,]*$/.test(text.slice(prev.end, m.start))) return;
       const s = STATE_ALIASES[m.state];
       if (asOrigin) {
         originId = s.origin;
@@ -103,6 +106,8 @@ export function parsePrompt(raw) {
   const travMatch = lower.match(/(\d+)\s?(?:people|travell?ers|adults|guests|of us)/);
   const travelers = travMatch ? Math.min(Number(travMatch[1]), 9) : /\bcouple\b|\bhoneymoon\b/.test(lower) ? 2 : 1;
 
+  const depart = parseDepart(lower);
+
   const level = interests.includes("luxury") ? "splurge" : interests.includes("budget") ? "budget" : "standard";
   const domesticOnly = /\bdomestic\b|within the (?:us|u\.s\.|states)|in the (?:us|u\.s\.|usa)\b|\busa\b/.test(lower);
 
@@ -125,5 +130,25 @@ export function parsePrompt(raw) {
       .map((x) => x.d.id);
   }
 
-  return { originId, originAssumed, destinations, namedExplicitly: namedDest.length > 0, interests, foodPrefs, budget, nights, travelers, level, domesticOnly, notes };
+  if (!namedDest.length) {
+    const unknown = text.match(/\b(?:go|going|trip|travel|fly|flying|visit|vacation|weekend|getaway)\s+(?:to|in)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+)?)/);
+    if (unknown) notes.push(`We don't have ${unknown[1]} yet, so here are similar ideas. Pick a city in the form to choose a specific one.`);
+  }
+
+  return { originId, originAssumed, destinations, namedExplicitly: namedDest.length > 0, interests, foodPrefs, budget, nights, travelers, level, domesticOnly, depart, notes };
+}
+
+// "this weekend" / "next weekend" mean leaving that Friday; "tomorrow" is tomorrow.
+function parseDepart(lower) {
+  const weekend = /\b(?:(this|next) )?weekend\b/.exec(lower);
+  const day = new Date();
+  day.setUTCDate(day.getUTCDate() + 1);
+  if (weekend) {
+    // A bare "weekend" means a Friday about two weeks out, when fares are better than last-minute.
+    if (!weekend[1]) day.setUTCDate(day.getUTCDate() + 13);
+    while (day.getUTCDay() !== 5) day.setUTCDate(day.getUTCDate() + 1);
+    if (weekend[1] === "next") day.setUTCDate(day.getUTCDate() + 7);
+    return day.toISOString().slice(0, 10);
+  }
+  return /\btomorrow\b/.test(lower) ? day.toISOString().slice(0, 10) : undefined;
 }
