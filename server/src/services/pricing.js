@@ -6,14 +6,17 @@ export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
 const SEASON_FACTOR = [0.9, 0.9, 1.0, 1.0, 1.05, 1.2, 1.25, 1.2, 0.92, 0.9, 0.95, 1.2]; // Jan..Dec
 
 export const AIRLINES = [
-  { code: "DL", name: "Delta", factor: 1.08 },
-  { code: "UA", name: "United", factor: 1.04 },
-  { code: "AA", name: "American", factor: 1.02 },
-  { code: "B6", name: "JetBlue", factor: 0.93 },
-  { code: "NK", name: "Spirit", factor: 0.8 },
-  { code: "EK", name: "Emirates", factor: 1.1 },
-  { code: "TP", name: "TAP Air Portugal", factor: 0.95 },
-  { code: "TK", name: "Turkish Airlines", factor: 0.9 },
+  { code: "DL", name: "Delta", factor: 1.08, scope: "both" },
+  { code: "UA", name: "United", factor: 1.04, scope: "both" },
+  { code: "AA", name: "American", factor: 1.02, scope: "both" },
+  { code: "B6", name: "JetBlue", factor: 0.93, scope: "both" },
+  { code: "NK", name: "Spirit", factor: 0.8, scope: "domestic" },
+  { code: "WN", name: "Southwest", factor: 0.95, scope: "domestic" },
+  { code: "AS", name: "Alaska Airlines", factor: 1.0, scope: "domestic" },
+  { code: "F9", name: "Frontier", factor: 0.78, scope: "domestic" },
+  { code: "EK", name: "Emirates", factor: 1.1, scope: "international" },
+  { code: "TP", name: "TAP Air Portugal", factor: 0.95, scope: "international" },
+  { code: "TK", name: "Turkish Airlines", factor: 0.9, scope: "international" },
 ];
 
 export const TIME_SLOTS = [
@@ -114,17 +117,19 @@ export function analyzeDailyPrices(daily, source) {
   };
 }
 
-export function mockFlights({ origin, dest, flightBase, depart, ret, travelers }) {
+export function mockFlights({ origin, dest, flightBase, km, domestic, depart, ret, travelers }) {
   const r = rng(`flights${origin}${dest}${depart}${ret}`);
   const base = modelFare({ origin, dest, flightBase, depart });
   const sites = ["Skyscanner", "Google Flights", "Kayak", "Expedia", "Momondo", "Kiwi.com"];
   const hours = [6, 9, 13, 17, 21, 23];
-  const durationBase = 5 + Math.round((flightBase / 1200) * 12);
+  const durationBase = Math.max(1, Math.round(km / 820 + 0.9));
+  const pool = AIRLINES.filter((a) => a.scope === "both" || a.scope === (domestic ? "domestic" : "international"));
   return hours
     .map((hour, i) => {
-      const airline = AIRLINES[Math.floor(r() * AIRLINES.length)];
+      const airline = pool[Math.floor(r() * pool.length)];
       const slot = hour >= 22 || hour < 5 ? 0.88 : hour < 9 ? 0.95 : hour < 16 ? 1.0 : 1.08;
-      const stops = r() < 0.45 ? 0 : r() < 0.8 ? 1 : 2;
+      const roll = r();
+      const stops = km > 10500 ? 1 + (roll < 0.35 ? 1 : 0) : roll < 0.45 ? 0 : roll < 0.8 ? 1 : 2;
       const perPerson = base * airline.factor * slot * (1 - stops * 0.07) * (0.97 + r() * 0.06);
       const prices = sites
         .map((site) => ({ site, price: Math.round(perPerson * (0.95 + r() * 0.1)) }))

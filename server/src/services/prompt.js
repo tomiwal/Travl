@@ -1,7 +1,8 @@
-import { AIRPORTS, DESTINATIONS } from "../data/destinations.js";
+import { DESTINATIONS, PLACES, STATE_ALIASES, findPlace } from "../data/destinations.js";
+import { distanceKm, fareBase } from "./geo.js";
 
 const INTEREST_WORDS = {
-  beach: ["beach", "beaches", "surf", "island", "sun", "swim", "snorkel"],
+  beach: ["beach", "beaches", "surf", "island", "sun", "swim", "snorkel", "snorkeling"],
   food: ["food", "eat", "eating", "restaurant", "restaurants", "foodie", "cuisine", "dining"],
   culture: ["culture", "museum", "museums", "history", "temple", "temples", "art", "architecture"],
   nature: ["nature", "scenery", "lake", "lakes", "waterfall", "wildlife"],
@@ -18,55 +19,111 @@ const INTEREST_WORDS = {
 };
 
 const FOOD_WORDS = [
-  "sushi", "ramen", "tacos", "seafood", "pizza", "pasta", "street food", "coffee", "bbq",
-  "vegan", "vegetarian", "brunch", "dessert", "pastries", "steak", "curry", "dumplings", "suya",
+  "sushi", "ramen", "tacos", "seafood", "pizza", "pasta", "street food", "coffee", "bbq", "barbecue",
+  "vegan", "vegetarian", "brunch", "dessert", "pastries", "steak", "curry", "dumplings", "suya", "bagels",
 ];
 
-const has = (text, word) => new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text);
+const ORIGIN_CUES = [
+  /(?:\bi'?m|\bi am|\bwe'?re|\bwe are|\blive|\bliving|\blocated|\bbased|\bcurrently|\bstaying|\bresid(?:e|ing))\s+(?:currently\s+)?(?:in|at|near|around|out of)\s*$/,
+  /\b(?:from|out of|leaving|departing(?: from)?|flying from|flying out of|starting from|starting in|leaving from)\s*$/,
+];
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const has = (text, word) => new RegExp(`\\b${escapeRe(word)}\\b`, "i").test(text);
+
+// Aliases written in capitals ("LA", "SF") only match capitalised text so "la" and "sf" in prose don't.
+const ALIASES = [
+  ...PLACES.flatMap((p) => p.aliases.map((alias) => ({ alias, placeId: p.id }))),
+  ...Object.keys(STATE_ALIASES).map((alias) => ({ alias, state: alias })),
+].sort((a, b) => b.alias.length - a.alias.length);
+
+function findMentions(raw) {
+  const lower = raw.toLowerCase();
+  const found = [];
+  for (const entry of ALIASES) {
+    const caseSensitive = entry.alias === entry.alias.toUpperCase() && /[A-Z]/.test(entry.alias);
+    const re = new RegExp(`(?<![\\w])${escapeRe(caseSensitive ? entry.alias : entry.alias.toLowerCase())}(?![\\w])`, caseSensitive ? "g" : "gi");
+    for (const m of (caseSensitive ? raw : lower).matchAll(re)) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (found.some((f) => start < f.end && end > f.start)) continue;
+      found.push({ start, end, ...entry });
+    }
+  }
+  return found.sort((a, b) => a.start - b.start);
+}
+
+const isOriginCue = (before) => ORIGIN_CUES.some((re) => re.test(before.toLowerCase()));
 
 export function parsePrompt(raw) {
-  const text = String(raw || "").toLowerCase();
+  const text = String(raw || "");
+  const lower = text.toLowerCase();
 
-  let origin = { iata: "JFK", city: "New York", assumed: true };
-  const fromMatch = text.match(/\bfrom\s+([a-z .]+?)(?=\s+(?:to|for|in|on|with|and|around|under)\b|[,.]|$)/);
-  const originKeys = Object.keys(AIRPORTS).sort((a, b) => b.length - a.length);
-  const originKey = fromMatch && originKeys.find((k) => fromMatch[1].trim() === k || fromMatch[1].includes(k));
-  if (originKey) origin = { ...AIRPORTS[originKey], assumed: false };
+  const mentions = findMentions(text);
+  let originId = null;
+  const destIds = [];
+  const notes = [];
 
-  const afterFrom = fromMatch ? text.replace(fromMatch[0], " ") : text;
-  const named = DESTINATIONS.filter((d) => has(afterFrom, d.city.toLowerCase()) || has(afterFrom, d.country.toLowerCase()));
+  mentions.forEach((m, i) => {
+    const before = text.slice(Math.max(0, m.start - 40), m.start);
+    const asOrigin = !originId && isOriginCue(before);
+    if (m.state) {
+      const s = STATE_ALIASES[m.state];
+      if (asOrigin) {
+        originId = s.origin;
+        notes.push(`Using ${findPlace(s.origin).city} as your departure airport for ${m.state[0].toUpperCase() + m.state.slice(1)}. Pick another city in the form to change it.`);
+      } else {
+        destIds.push(...s.dest);
+      }
+      return;
+    }
+    if (asOrigin) originId = m.placeId;
+    else if (!originId && !destIds.length && mentions[i + 1] && /^\s*(?:to|->|→|-)\s*$/i.test(text.slice(m.end, mentions[i + 1].start))) originId = m.placeId;
+    else destIds.push(m.placeId);
+  });
+
+  const namedDest = [...new Set(destIds)].filter((id) => id !== originId && DESTINATIONS.some((d) => d.id === id));
 
   const interests = Object.entries(INTEREST_WORDS)
-    .filter(([, words]) => words.some((w) => has(text, w)))
+    .filter(([, words]) => words.some((w) => has(lower, w)))
     .map(([tag]) => tag);
-  const foodPrefs = FOOD_WORDS.filter((w) => has(text, w));
+  const foodPrefs = FOOD_WORDS.filter((w) => has(lower, w));
 
-  const budgetMatch = text.match(/\$\s?([\d,]+)\s?(k)?/) || text.match(/([\d,]+)\s?(?:usd|dollars|bucks)/);
+  const budgetMatch = lower.match(/\$\s?([\d,]+)\s?(k)?/) || lower.match(/([\d,]+)\s?(?:usd|dollars|bucks)/);
   let budget = null;
   if (budgetMatch) {
     budget = Number(budgetMatch[1].replace(/,/g, ""));
     if (budgetMatch[2] === "k") budget *= 1000;
   }
 
-  const nightsMatch = text.match(/(\d+)\s?(?:nights?|days?)/);
-  const weekMatch = text.match(/(\d+)\s?weeks?/);
-  const nights = nightsMatch ? Math.min(Number(nightsMatch[1]), 30) : weekMatch ? Math.min(Number(weekMatch[1]) * 7, 30) : 5;
+  const nightsMatch = lower.match(/(\d+)\s?(?:nights?|days?)/);
+  const weekMatch = lower.match(/(\d+)\s?weeks?/);
+  const nights = nightsMatch ? Math.min(Number(nightsMatch[1]), 30) : weekMatch ? Math.min(Number(weekMatch[1]) * 7, 30) : /\bweekend\b/.test(lower) ? 2 : 5;
 
-  const travMatch = text.match(/(\d+)\s?(?:people|travell?ers|adults|guests|of us)/);
-  const travelers = travMatch ? Math.min(Number(travMatch[1]), 9) : /\bcouple\b|\bhoneymoon\b/.test(text) ? 2 : 1;
+  const travMatch = lower.match(/(\d+)\s?(?:people|travell?ers|adults|guests|of us)/);
+  const travelers = travMatch ? Math.min(Number(travMatch[1]), 9) : /\bcouple\b|\bhoneymoon\b/.test(lower) ? 2 : 1;
 
-  let picks = named;
-  if (!picks.length) {
+  const level = interests.includes("luxury") ? "splurge" : interests.includes("budget") ? "budget" : "standard";
+  const domesticOnly = /\bdomestic\b|within the (?:us|u\.s\.|states)|in the (?:us|u\.s\.|usa)\b|\busa\b/.test(lower);
+
+  const originAssumed = !originId;
+  if (!originId) originId = namedDest[0] === "newyork" ? "losangeles" : "newyork";
+  const origin = findPlace(originId);
+
+  let destinations = namedDest;
+  if (!destinations.length) {
     const wanted = interests.length ? interests : ["culture", "food"];
-    picks = DESTINATIONS.map((d) => {
-      let score = wanted.filter((t) => d.tags.includes(t)).length * 3;
-      if (budget) score += d.flightBase * 2 + d.hotelBase * nights < budget ? 2 : -2;
-      return { d, score };
-    })
+    destinations = DESTINATIONS.filter((d) => d.id !== originId && (!domesticOnly || d.country === origin.country))
+      .map((d) => {
+        let score = wanted.filter((t) => d.tags.includes(t)).length * 3;
+        if (budget) score += fareBase(origin, d) * 2 + d.hotelBase * nights < budget ? 2 : -2;
+        score -= distanceKm(origin, d) / 20000;
+        return { d, score };
+      })
       .sort((a, b) => b.score - a.score)
       .slice(0, 3)
-      .map((x) => x.d);
+      .map((x) => x.d.id);
   }
 
-  return { origin, destinations: picks.map((d) => d.id), namedExplicitly: named.length > 0, interests, foodPrefs, budget, nights, travelers };
+  return { originId, originAssumed, destinations, namedExplicitly: namedDest.length > 0, interests, foodPrefs, budget, nights, travelers, level, domesticOnly, notes };
 }
