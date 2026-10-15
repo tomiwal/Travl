@@ -31,9 +31,6 @@ Open http://localhost:5173.
 ## Deploy (Vercel)
 One Vercel project runs two services, defined in `vercel.json`: `client` (Vite) and `server` (Express), with `/api/*` routed to the server. Import this repo at vercel.com/new and keep the defaults. Optional: add `AMADEUS_CLIENT_ID` and `AMADEUS_CLIENT_SECRET` as environment variables for live fares.
 
-## Logo font
-The logo uses Vergilia by Attract Studio. Add the font file to `client/public/fonts/` (see the README there). Without it the logo falls back to a serif font.
-
 ## Live data
 Without keys the app uses a deterministic fare-pattern model (midweek departures, 6-8 week booking window, seasonality) so the UI is fully demoable. For live flight fares, get free keys at https://developers.amadeus.com/self-service, copy `server/.env.example` to `server/.env`, and fill them in. The app then uses Amadeus Flight Offers and Flight Cheapest Date Search and labels results as live.
 
